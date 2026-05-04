@@ -1,6 +1,15 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  type DragEvent,
+} from "react";
+import Image from "next/image";
 import {
   COLOR_ROW_META,
   EXTRA_COLOR_MAX,
@@ -13,16 +22,18 @@ import {
   type FontCategory,
 } from "@/lib/explorer-data";
 import { resolveTheme, type FontBuckets } from "@/lib/resolve-theme";
+import { MAX_DEMO_IMAGES, useDemoImages } from "@/hooks/useDemoImages";
 import { LiveSitePreview } from "@/components/LiveSitePreview";
 import "./explorer.css";
 
-type Tab = "fonts" | "colors";
+type Tab = "fonts" | "colors" | "images";
 type FontPool = keyof FontBuckets;
 
 type SummaryItem =
   | { kind: "font"; pool: FontPool; name: string }
   | { kind: "color"; role: "bg" | "text" | "primary" | "secondary"; hex: string }
-  | { kind: "extra"; hex: string };
+  | { kind: "extra"; hex: string }
+  | { kind: "images"; count: number };
 
 const POOL_LABELS: Record<FontPool, string> = {
   headings: "Titres & affichage",
@@ -35,6 +46,12 @@ const POOL_HINTS: Record<FontPool, string> = {
   body: "Navigation, paragraphes, boutons. Idéal en sans-serif ou humaniste.",
   accent: "Sous-titres, badge, touches calligraphiques ou display. Combine avec les autres groupes.",
 };
+
+function demoSlotLabel(i: number): string {
+  if (i === 0) return "Hero";
+  if (i < 4) return `Carte ${i}`;
+  return `Galerie ${i - 3}`;
+}
 
 export function StyleExplorer() {
   const [tab, setTab] = useState<Tab>("fonts");
@@ -49,7 +66,13 @@ export function StyleExplorer() {
   }>({ bg: null, text: null, primary: null, secondary: null, extras: [] });
   const [toast, setToast] = useState<string | null>(null);
   const [sent, setSent] = useState(false);
+  const [previewDragOver, setPreviewDragOver] = useState(false);
+  const [imagesDropActive, setImagesDropActive] = useState(false);
+  const previewDragDepth = useRef(0);
+  const imagesDragDepth = useRef(0);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const colorFxRef = useRef<{ toast: string | null; copy: string | null } | null>(null);
+  const { items: demoItems, urls: demoUrls, addFiles, removeAt, clearAll } = useDemoImages();
 
   const showToast = useCallback((msg: string) => {
     setToast(msg);
@@ -70,6 +93,32 @@ export function StyleExplorer() {
   }, [toast]);
 
   const resolvedTheme = useMemo(() => resolveTheme(colors), [colors]);
+
+  const ingestFiles = useCallback(
+    (list: FileList | File[] | null | undefined) => {
+      if (!list || (Array.isArray(list) ? list.length === 0 : list.length === 0)) return;
+      const files = Array.from(list);
+      const images = files.filter((f) => f.type.startsWith("image/"));
+      if (images.length === 0) {
+        showToast("Formats acceptés : images (JPG, PNG, WebP, GIF…)");
+        return;
+      }
+      const n = addFiles(images);
+      if (n === 0) {
+        showToast(`Maximum ${MAX_DEMO_IMAGES} images — retire-en une ou vide la liste.`);
+      } else if (n < images.length) {
+        showToast(`${n} image(s) ajoutée(s) (limite ${MAX_DEMO_IMAGES})`);
+      } else {
+        showToast(`${n} image(s) ajoutée(s) dans la démo`);
+      }
+    },
+    [addFiles, showToast],
+  );
+
+  const preventDragDefaults = useCallback((e: DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
 
   const toggleFont = useCallback(
     (name: string) => {
@@ -138,8 +187,9 @@ export function StyleExplorer() {
     if (colors.primary) items.push({ kind: "color", role: "primary", hex: colors.primary });
     if (colors.secondary) items.push({ kind: "color", role: "secondary", hex: colors.secondary });
     colors.extras.forEach((hex) => items.push({ kind: "extra", hex }));
+    if (demoUrls.length > 0) items.push({ kind: "images", count: demoUrls.length });
     return items;
-  }, [fonts, colors]);
+  }, [fonts, colors, demoUrls.length]);
 
   const selectionCount = summaryItems.length;
 
@@ -151,13 +201,15 @@ export function StyleExplorer() {
       }));
     } else if (item.kind === "color") {
       setColors((prev) => ({ ...prev, [item.role]: null }));
-    } else {
+    } else if (item.kind === "extra") {
       setColors((prev) => ({
         ...prev,
         extras: prev.extras.filter((h) => h !== item.hex),
       }));
+    } else if (item.kind === "images") {
+      clearAll();
     }
-  }, []);
+  }, [clearAll]);
 
   const sendSelection = useCallback(() => {
     setSent(true);
@@ -174,8 +226,9 @@ export function StyleExplorer() {
     if (colors.primary) lines.push(`Couleur principale : ${colors.primary}`);
     if (colors.secondary) lines.push(`Couleur secondaire : ${colors.secondary}`);
     colors.extras.forEach((c) => lines.push(`Touche : ${c}`));
+    if (demoUrls.length) lines.push(`Images démo : ${demoUrls.length} fichier(s)`);
     return lines;
-  }, [fonts, colors]);
+  }, [fonts, colors, demoUrls.length]);
 
   return (
     <div className="da-root">
@@ -183,8 +236,8 @@ export function StyleExplorer() {
         <div className="da-header-left">
           <h1>Direction artistique</h1>
           <p>
-            Compose titres, corps, signatures et palette — aperçu type galerie (Site 17 / Shopayado). 100 % local, sans
-            serveur.
+            Compose titres, corps, signatures, palette et images (glisser-déposer sur l&apos;onglet Images ou sur
+            l&apos;aperçu). 100 % local, sans serveur.
           </p>
         </div>
         <div className="da-step-indicator">
@@ -232,6 +285,15 @@ export function StyleExplorer() {
               onClick={() => setTab("colors")}
             >
               Couleurs
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={tab === "images"}
+              className={`da-tab-btn ${tab === "images" ? "active" : ""}`}
+              onClick={() => setTab("images")}
+            >
+              Images
             </button>
           </div>
 
@@ -304,6 +366,82 @@ export function StyleExplorer() {
               </PaletteGroup>
             ))}
           </div>
+
+          <div className={`da-images-section ${tab === "images" ? "active" : ""}`}>
+            <div
+              className={`da-drop-zone ${imagesDropActive ? "drag-over" : ""}`}
+              onDragOver={preventDragDefaults}
+              onDrop={(e) => {
+                preventDragDefaults(e);
+                imagesDragDepth.current = 0;
+                setImagesDropActive(false);
+                ingestFiles(e.dataTransfer.files);
+              }}
+              onDragEnter={(e) => {
+                preventDragDefaults(e);
+                imagesDragDepth.current += 1;
+                setImagesDropActive(true);
+              }}
+              onDragLeave={(e) => {
+                preventDragDefaults(e);
+                const el = e.currentTarget;
+                const r = e.relatedTarget as Node | null;
+                if (r && el.contains(r)) return;
+                imagesDragDepth.current = Math.max(0, imagesDragDepth.current - 1);
+                if (imagesDragDepth.current === 0) setImagesDropActive(false);
+              }}
+            >
+              <p>
+                Glisse-dépose des images ici (ou sur l&apos;aperçu à droite). Ordre :{" "}
+                <strong>1 = hero</strong>, <strong>2–4 = cartes</strong>, <strong>5+ = galerie</strong> — max{" "}
+                {MAX_DEMO_IMAGES}.
+              </p>
+              <div className="da-drop-zone-actions">
+                <button
+                  type="button"
+                  className="da-send-btn"
+                  style={{ width: "auto", marginTop: 0, padding: "8px 18px" }}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  Parcourir…
+                </button>
+                {demoItems.length > 0 && (
+                  <button type="button" className="da-btn-secondary" onClick={() => clearAll()}>
+                    Tout retirer
+                  </button>
+                )}
+              </div>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={(e) => {
+                  ingestFiles(e.target.files);
+                  e.target.value = "";
+                }}
+              />
+              {demoItems.length > 0 && (
+                <div className="da-thumb-grid">
+                  {demoItems.map((it, i) => (
+                    <div key={it.id} className="da-thumb">
+                      <Image src={it.url} alt="" fill unoptimized className="object-cover" sizes="96px" />
+                      <span className="da-thumb-slot">{demoSlotLabel(i)}</span>
+                      <button
+                        type="button"
+                        className="da-thumb-remove"
+                        aria-label={`Retirer ${demoSlotLabel(i)}`}
+                        onClick={() => removeAt(i)}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className={`da-preview-panel${sent ? " da-preview-panel-sent" : ""}`}>
@@ -315,8 +453,32 @@ export function StyleExplorer() {
                   {selectionCount} choix{selectionCount > 1 ? "s" : ""}
                 </span>
               </div>
-              <div className="da-preview-body" id="preview-body">
-                <LiveSitePreview buckets={fonts} theme={resolvedTheme} />
+              <div
+                className={`da-preview-body${previewDragOver ? " da-preview-body--drag" : ""}`}
+                id="preview-body"
+                onDragOver={preventDragDefaults}
+                onDrop={(e) => {
+                  preventDragDefaults(e);
+                  previewDragDepth.current = 0;
+                  setPreviewDragOver(false);
+                  ingestFiles(e.dataTransfer.files);
+                }}
+                onDragEnter={(e) => {
+                  preventDragDefaults(e);
+                  if (![...e.dataTransfer.types].includes("Files")) return;
+                  previewDragDepth.current += 1;
+                  setPreviewDragOver(true);
+                }}
+                onDragLeave={(e) => {
+                  preventDragDefaults(e);
+                  const el = e.currentTarget;
+                  const r = e.relatedTarget as Node | null;
+                  if (r && el.contains(r)) return;
+                  previewDragDepth.current = Math.max(0, previewDragDepth.current - 1);
+                  if (previewDragDepth.current === 0) setPreviewDragOver(false);
+                }}
+              >
+                <LiveSitePreview buckets={fonts} theme={resolvedTheme} demoImages={demoUrls} />
               </div>
               <div className="da-selection-summary" id="summary">
                 <div className="da-summary-title">Synthèse</div>
@@ -327,7 +489,9 @@ export function StyleExplorer() {
                         ? `f-${item.pool}-${item.name}`
                         : item.kind === "color"
                           ? `c-${item.role}-${item.hex}`
-                          : `e-${item.hex}`;
+                          : item.kind === "images"
+                            ? "img-summary"
+                            : `e-${item.hex}`;
                     return (
                       <button type="button" key={key} className="da-chip" title="Retirer" onClick={() => removeItem(item)}>
                         {item.kind === "font" ? (
@@ -336,6 +500,11 @@ export function StyleExplorer() {
                             <span className="da-cname" style={{ fontFamily: fontCss(item.name) }}>
                               {item.name}
                             </span>
+                          </>
+                        ) : item.kind === "images" ? (
+                          <>
+                            <span className="da-chip-role">IMG</span>
+                            <span className="da-cname">{item.count} image(s) démo</span>
                           </>
                         ) : (
                           <>

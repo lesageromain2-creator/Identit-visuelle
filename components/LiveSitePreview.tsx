@@ -1,6 +1,7 @@
 "use client";
 
 import { useMemo } from "react";
+import Image from "next/image";
 import { motion } from "framer-motion";
 import { fontCss } from "@/lib/explorer-data";
 import {
@@ -13,9 +14,14 @@ import {
 
 const SPECIMEN_FALLBACK = ["Cormorant Garamond", "Outfit"] as const;
 
-type Props = { buckets: FontBuckets; theme: ResolvedTheme };
+type Props = {
+  buckets: FontBuckets;
+  theme: ResolvedTheme;
+  /** URLs blob: — ordre : [0] hero, [1–3] cartes, [4+] bandeau galerie */
+  demoImages?: readonly string[];
+};
 
-export function LiveSitePreview({ buckets, theme }: Props) {
+export function LiveSitePreview({ buckets, theme, demoImages = [] }: Props) {
   const rf = useMemo(() => resolveFontBuckets(buckets), [buckets]);
   const { headings: H, body: B, accent: A } = buckets;
 
@@ -56,7 +62,7 @@ export function LiveSitePreview({ buckets, theme }: Props) {
   }, [theme]);
 
   const borderSoft = `${theme.text}14`;
-  const motionKey = `${specimen.join("|")}-${theme.bg}-${theme.primary}-${theme.secondary}`;
+  const motionKey = `${specimen.join("|")}-${theme.bg}-${theme.primary}-${theme.secondary}-${demoImages.join(",")}`;
 
   return (
     <motion.div
@@ -100,13 +106,32 @@ export function LiveSitePreview({ buckets, theme }: Props) {
       {/* Hero — image simulée + badge (template Site 17) */}
       <header className="px-4 md:px-8 pt-8 md:pt-12 pb-6 max-w-[1100px] mx-auto w-full">
         <div className="relative w-full aspect-[16/10] md:aspect-[1120/520] rounded-[24px] overflow-hidden shadow-inner">
-          <div className="absolute inset-0" style={{ background: heroBg }} />
-          <div
-            className="absolute inset-0 opacity-[0.15]"
-            style={{
-              backgroundImage: `repeating-linear-gradient(-45deg, ${theme.text}, ${theme.text} 1px, transparent 1px, transparent 10px)`,
-            }}
-          />
+          {demoImages[0] ? (
+            <>
+              <Image
+                src={demoImages[0]}
+                alt=""
+                fill
+                unoptimized
+                className="object-cover"
+                sizes="(max-width: 768px) 100vw, 1100px"
+              />
+              <div
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/40 via-black/10 to-black/20"
+                aria-hidden
+              />
+            </>
+          ) : (
+            <>
+              <div className="absolute inset-0" style={{ background: heroBg }} />
+              <div
+                className="absolute inset-0 opacity-[0.15]"
+                style={{
+                  backgroundImage: `repeating-linear-gradient(-45deg, ${theme.text}, ${theme.text} 1px, transparent 1px, transparent 10px)`,
+                }}
+              />
+            </>
+          )}
           <div className="absolute inset-0 flex items-center justify-end p-4 md:p-8 md:pr-10">
             <div
               className="rounded-xl shadow-md flex flex-col items-center justify-center gap-1.5 px-5 py-4 md:px-7 md:py-6 max-w-[200px]"
@@ -193,12 +218,25 @@ export function LiveSitePreview({ buckets, theme }: Props) {
               className="rounded-xl border overflow-hidden flex flex-col"
               style={{ borderColor: borderSoft, background: theme.bg }}
             >
-              <div
-                className="aspect-square w-full"
-                style={{
-                  background: `linear-gradient(160deg, ${theme.primary}35, ${theme.secondary}40)`,
-                }}
-              />
+              <div className="relative aspect-square w-full overflow-hidden bg-black/5">
+                {demoImages[i + 1] ? (
+                  <Image
+                    src={demoImages[i + 1]}
+                    alt=""
+                    fill
+                    unoptimized
+                    className="object-cover"
+                    sizes="(max-width: 640px) 100vw, 33vw"
+                  />
+                ) : (
+                  <div
+                    className="h-full w-full"
+                    style={{
+                      background: `linear-gradient(160deg, ${theme.primary}35, ${theme.secondary}40)`,
+                    }}
+                  />
+                )}
+              </div>
               <div className="p-3 md:p-4 flex flex-col gap-1">
                 <h4
                   className="text-[15px] md:text-[16px] font-semibold leading-tight"
@@ -216,13 +254,26 @@ export function LiveSitePreview({ buckets, theme }: Props) {
             </article>
           ))}
         </div>
+        {demoImages.length > 4 && (
+          <div className="mt-6 flex gap-2 overflow-x-auto pb-1 pt-1 [scrollbar-width:thin]">
+            {demoImages.slice(4).map((url, gi) => (
+              <div
+                key={`${url}-${gi}`}
+                className="relative h-28 w-44 shrink-0 overflow-hidden rounded-lg border shadow-sm"
+                style={{ borderColor: borderSoft }}
+              >
+                <Image src={url} alt="" fill unoptimized className="object-cover" sizes="176px" />
+              </div>
+            ))}
+          </div>
+        )}
       </section>
 
       {/* Bandeau : toutes les typos sélectionnées */}
       <section
-          className="border-t px-4 md:px-8 py-6 md:py-8"
-          style={{ borderColor: borderSoft, background: theme.surface }}
-        >
+        className="border-t px-4 md:px-8 py-6 md:py-8"
+        style={{ borderColor: borderSoft, background: theme.surface }}
+      >
           <p
             className="text-[10px] font-bold uppercase tracking-[0.16em] mb-4"
             style={{ fontFamily: fontCss(fb(0)), color: theme.muted }}
@@ -248,7 +299,7 @@ export function LiveSitePreview({ buckets, theme }: Props) {
               </div>
             ))}
           </div>
-        </section>
+      </section>
 
       {/* Pastilles couleurs extras */}
       {theme.extras.length > 0 && (
